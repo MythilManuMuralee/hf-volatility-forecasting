@@ -77,40 +77,32 @@ def run_financial_backtest(return_results=False):
     X_test = test_df[feature_cols].values
     
     # Returns aligned with Target_RV (which is t+1)
-    # Target_RV is Realized_Volatility.shift(-1)
-    # The actual return realized at t+1 is Returns.shift(-1)
-    # We will use the model's prediction at t to position for t+1.
     actual_returns_test = test_df['Returns'].shift(-1).fillna(0).values
     
-    print("\nTraining XGBoost Model...")
+    print("Training GARCH(1,1) Baseline (used as standalone and feature)...")
+    train_returns_scaled = 100.0 * train_df['Returns']
+    garch_model = arch_model(train_returns_scaled, vol='Garch', p=1, q=1, mean='Zero', rescale=False)
+    fitted_garch = garch_model.fit(disp='off')
+    
+    full_returns_scaled = 100.0 * feature_df['Returns']
+    full_garch_eval = arch_model(full_returns_scaled, vol='Garch', p=1, q=1, mean='Zero', rescale=False)
+    fixed_res = full_garch_eval.fix(fitted_garch.params)
+    
+    cond_vol_scaled = fixed_res.conditional_volatility.values
+    garch_forecasts_full = (cond_vol_scaled / 100.0) * np.sqrt(288)
+    garch_forecasts = garch_forecasts_full[split_idx:]
+    
+    print("\nTraining XGBoost Model (Standalone)...")
     xgb_model = xgb.XGBRegressor(
         n_estimators=100, max_depth=3, learning_rate=0.05, 
         objective=asymmetric_mse_objective, n_jobs=-1, random_state=42
     )
     xgb_model.fit(X_train, y_train)
-    
-    # Predict Volatility for test set
     xgb_forecasts = xgb_model.predict(X_test)
-    
-    print("Training GARCH(1,1) Baseline...")
-    # GARCH is trained on the same training window. We use the Returns from train_df.
-    # Note: arch expects scaled returns to converge well
-    train_returns_scaled = 100.0 * train_df['Returns']
-    garch_model = arch_model(train_returns_scaled, vol='Garch', p=1, q=1, mean='Zero', rescale=False)
-    fitted_garch = garch_model.fit(disp='off')
-    
-    # Generate forecasts for test set using fixed parameters
-    test_returns_scaled = 100.0 * test_df['Returns']
-    # Full dataset needed for fix() to generate continuous conditional volatility
-    full_returns_scaled = 100.0 * feature_df['Returns']
-    full_garch_eval = arch_model(full_returns_scaled, vol='Garch', p=1, q=1, mean='Zero', rescale=False)
-    fixed_res = full_garch_eval.fix(fitted_garch.params)
-    
-    # Get GARCH volatility for the test set period
-    cond_vol_scaled = fixed_res.conditional_volatility.values
-    # Convert per-bar sigma to rolling-RV-equivalent: sigma_t * sqrt(288) / 100
-    garch_forecasts_full = (cond_vol_scaled / 100.0) * np.sqrt(288)
-    garch_forecasts = garch_forecasts_full[split_idx:]
+
+    print("\nCreating Hybrid GARCH-XGBoost Ensemble...")
+    # A robust 50/50 blend of the non-linear ML forecasts and the parametric tail-risk forecasts
+    hybrid_forecasts = 0.5 * xgb_forecasts + 0.5 * garch_forecasts
     
     # ==========================================
     # STRATEGY DESIGN: Volatility Targeting
@@ -130,8 +122,11 @@ def run_financial_backtest(return_results=False):
     garch_strategy_returns = garch_weights * actual_returns_test
     
     # 3. Buy & Hold Strategy
-    # Weight = 1.0 throughout
     bnh_strategy_returns = actual_returns_test
+    
+    # 4. Hybrid XGBoost Vol-Scale Strategy
+    hybrid_weights = np.clip(target_rv / np.maximum(hybrid_forecasts, 1e-6), 0.1, 2.0)
+    hybrid_strategy_returns = hybrid_weights * actual_returns_test
     
     print("\n=============================================")
     print("FINANCIAL VALIDATION: STRATEGY BACKTEST RESULTS")
@@ -140,18 +135,20 @@ def run_financial_backtest(return_results=False):
     calculate_metrics(pd.Series(bnh_strategy_returns), "Buy & Hold Baseline")
     calculate_metrics(pd.Series(garch_strategy_returns), "GARCH(1,1) Baseline")
     calculate_metrics(pd.Series(xgb_strategy_returns), "XGBoost Vol-Scale Strategy")
+    calculate_metrics(pd.Series(hybrid_strategy_returns), "Hybrid GARCH-XGBoost Strategy")
 
     print("\nGenerating equity curves chart...")
     # Plotting
     bnh_cum = (1 + pd.Series(bnh_strategy_returns)).cumprod()
     garch_cum = (1 + pd.Series(garch_strategy_returns)).cumprod()
     xgb_cum = (1 + pd.Series(xgb_strategy_returns)).cumprod()
+    hybrid_cum = (1 + pd.Series(hybrid_strategy_returns)).cumprod()
     
     plt.figure(figsize=(12, 7))
-    # Using index for x-axis. For a real timeline, we would use test_df.index
-    plt.plot(test_df.index, bnh_cum, label='Buy & Hold Baseline', color='gray', alpha=0.7)
-    plt.plot(test_df.index, xgb_cum, label='XGBoost Vol-Scale', color='blue', linewidth=2)
-    plt.plot(test_df.index, garch_cum, label='GARCH(1,1) Vol-Scale', color='orange', alpha=0.8)
+    plt.plot(test_df.index, bnh_cum, label='Buy & Hold', color='gray', alpha=0.5)
+    plt.plot(test_df.index, garch_cum, label='GARCH(1,1)', color='orange', alpha=0.7)
+    plt.plot(test_df.index, xgb_cum, label='XGBoost', color='blue', alpha=0.7)
+    plt.plot(test_df.index, hybrid_cum, label='Hybrid GARCH-XGBoost', color='green', linewidth=2.5)
     
     plt.title("Out-of-Sample Cumulative Returns: Volatility Scaling Strategies", fontsize=14)
     plt.xlabel("Date", fontsize=12)
@@ -169,7 +166,8 @@ def run_financial_backtest(return_results=False):
             'Actual_RV': test_df['Target_RV'].values,
             'BnH_Returns': bnh_strategy_returns,
             'GARCH_Returns': garch_strategy_returns,
-            'XGB_Returns': xgb_strategy_returns
+            'XGB_Returns': xgb_strategy_returns,
+            'Hybrid_Returns': hybrid_strategy_returns
         }, index=test_df.index)
         return results_df
 

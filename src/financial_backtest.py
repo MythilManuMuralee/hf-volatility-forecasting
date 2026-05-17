@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from arch import arch_model
+import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
@@ -139,6 +140,29 @@ def run_financial_backtest():
     calculate_metrics(pd.Series(bnh_strategy_returns), "Buy & Hold Baseline")
     calculate_metrics(pd.Series(garch_strategy_returns), "GARCH(1,1) Baseline")
     calculate_metrics(pd.Series(xgb_strategy_returns), "XGBoost Vol-Scale Strategy")
+
+    print("\nGenerating equity curves chart...")
+    # Plotting
+    bnh_cum = (1 + pd.Series(bnh_strategy_returns)).cumprod()
+    garch_cum = (1 + pd.Series(garch_strategy_returns)).cumprod()
+    xgb_cum = (1 + pd.Series(xgb_strategy_returns)).cumprod()
+    
+    plt.figure(figsize=(12, 7))
+    # Using index for x-axis. For a real timeline, we would use test_df.index
+    plt.plot(test_df.index, bnh_cum, label='Buy & Hold Baseline', color='gray', alpha=0.7)
+    plt.plot(test_df.index, xgb_cum, label='XGBoost Vol-Scale', color='blue', linewidth=2)
+    plt.plot(test_df.index, garch_cum, label='GARCH(1,1) Vol-Scale', color='orange', alpha=0.8)
+    
+    plt.title("Out-of-Sample Cumulative Returns: Volatility Scaling Strategies", fontsize=14)
+    plt.xlabel("Date", fontsize=12)
+    plt.ylabel("Cumulative Return Multiplier", fontsize=12)
+    plt.legend(loc="upper left")
+    plt.grid(True, alpha=0.3)
+    
+    # Save the plot
+    plot_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "equity_curves.png")
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Equity curve plot saved successfully to: {plot_path}")
 
 if __name__ == '__main__':
     run_financial_backtest()

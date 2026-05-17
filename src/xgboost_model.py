@@ -70,7 +70,7 @@ def run_xgboost_pipeline():
     print("Loading continuous timeline data via central data_pipeline...")
     
     # Increase to 2mo to give tree depth healthy variations across splits
-    raw_data = fetch_data(ticker="ES=F", period="2mo", interval="5m")
+    raw_data = fetch_data(ticker="ES=F", period="59d", interval="5m")
     cleaned_data = clean_missing_ticks(raw_data)
     
     # Calculate base rolling realized volatility pipeline standard protocol
@@ -142,6 +142,17 @@ def run_xgboost_pipeline():
     print(f">> Ensembled Out-Of-Sample MAE: {avg_mae:.6f}")
     print("This framework successfully anchors against your prior GARCH measurements.")
     print("=======================================================")
+
+    print("\nTraining final XGBoost model on full dataset for deployment...")
+    model.fit(X, y)
+    
+    # Ensure models directory exists
+    model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+    os.makedirs(model_dir, exist_ok=True)
+    
+    model_path = os.path.join(model_dir, "xgboost_volatility_model.json")
+    model.save_model(model_path)
+    print(f"Final model successfully saved to: {model_path}")
 
 if __name__ == "__main__":
     run_xgboost_pipeline()

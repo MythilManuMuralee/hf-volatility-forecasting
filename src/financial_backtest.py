@@ -50,7 +50,7 @@ def calculate_metrics(returns_series, strategy_name):
     
     return ann_return, sharpe_ratio, max_dd
 
-def run_financial_backtest():
+def run_financial_backtest(return_results=False):
     print("Fetching and preparing data...")
     # Using 59d to avoid yfinance limitation
     raw_data = fetch_data(ticker="ES=F", period="59d", interval="5m")
@@ -163,6 +163,15 @@ def run_financial_backtest():
     plot_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "equity_curves.png")
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"Equity curve plot saved successfully to: {plot_path}")
+
+    if return_results:
+        results_df = pd.DataFrame({
+            'Actual_RV': test_df['Target_RV'].values,
+            'BnH_Returns': bnh_strategy_returns,
+            'GARCH_Returns': garch_strategy_returns,
+            'XGB_Returns': xgb_strategy_returns
+        }, index=test_df.index)
+        return results_df
 
 if __name__ == '__main__':
     run_financial_backtest()

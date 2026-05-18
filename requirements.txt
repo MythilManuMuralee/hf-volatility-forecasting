@@ -1,6 +1,7 @@
 pandas
 numpy
-torch
 scikit-learn
 arch
 yfinance
+xgboost
+matplotlib

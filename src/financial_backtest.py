@@ -61,10 +61,11 @@ def run_financial_backtest(return_results=False):
     feature_df = generate_features(base_data).dropna()
     
     feature_cols = [
-        'Realized_Volatility', 'Returns', 
-        'RV_Lag_1', 'RV_Lag_3', 'RV_Lag_6', 
+        'Realized_Volatility', 'Returns',
+        'RV_Lag_1', 'RV_Lag_3', 'RV_Lag_6',
         'RV_Rolling_Mean_12', 'RV_Rolling_Std_12',
-        'Returns_Lag_1', 'Returns_Rolling_Std_12'
+        'Returns_Lag_1', 'Returns_Rolling_Std_12',
+        'VIX', 'VIX_Change', 'Hour_sin', 'Hour_cos'
     ]
     
     # Data length and split logic

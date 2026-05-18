@@ -60,6 +60,35 @@ def generate_features(df):
     df['Returns_Lag_1'] = df['Returns'].shift(1)
     df['Returns_Rolling_Std_12'] = df['Returns'].rolling(window=12).std()
     
+    import yfinance as yf
+
+    # Download VIX daily data covering the full date range
+    vix_raw = yf.download("^VIX", start=df.index.min().strftime('%Y-%m-%d'),
+                          end=df.index.max().strftime('%Y-%m-%d'),
+                          interval="1d", progress=False)
+    if isinstance(vix_raw.columns, pd.MultiIndex):
+        vix_raw.columns = vix_raw.columns.get_level_values(0)
+    vix_daily = vix_raw[['Close']].rename(columns={'Close': 'VIX'})
+    vix_daily.index = vix_daily.index.tz_localize('UTC') if vix_daily.index.tzinfo is None else vix_daily.index.tz_convert('UTC')
+    vix_daily['VIX_Change'] = vix_daily['VIX'].diff()
+
+    # Merge onto 5-min bars by forward-filling daily VIX
+    df = df.copy()
+    df.index.name = None
+    vix_daily.index.name = None
+    df['Date'] = df.index.normalize()
+    vix_daily['Date'] = vix_daily.index.normalize()
+    orig_idx = df.index
+    df = df.merge(vix_daily[['Date','VIX','VIX_Change']], on='Date', how='left')
+    df.index = orig_idx
+    df = df.drop(columns=['Date'])
+    df['VIX'] = df['VIX'].ffill()
+    df['VIX_Change'] = df['VIX_Change'].ffill()
+
+    # Time-of-day and day-of-week features
+    df['Hour_sin'] = np.sin(2 * np.pi * df.index.hour / 24)
+    df['Hour_cos'] = np.cos(2 * np.pi * df.index.hour / 24)
+    
     # 4. Target definition: Realized Volatility strictly projected for t+1
     # Thus, utilizing features constructed natively at time t.
     df['Target_RV'] = df['Realized_Volatility'].shift(-1)
@@ -84,10 +113,11 @@ def run_xgboost_pipeline():
     
     # Define definitive feature column sets without risk of incorporating Target_RV
     feature_cols = [
-        'Realized_Volatility', 'Returns', 
-        'RV_Lag_1', 'RV_Lag_3', 'RV_Lag_6', 
+        'Realized_Volatility', 'Returns',
+        'RV_Lag_1', 'RV_Lag_3', 'RV_Lag_6',
         'RV_Rolling_Mean_12', 'RV_Rolling_Std_12',
-        'Returns_Lag_1', 'Returns_Rolling_Std_12'
+        'Returns_Lag_1', 'Returns_Rolling_Std_12',
+        'VIX', 'VIX_Change', 'Hour_sin', 'Hour_cos'
     ]
     
     X = feature_df[feature_cols].values

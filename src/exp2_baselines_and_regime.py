@@ -36,8 +36,11 @@ cleaned = clean_missing_ticks(raw)
 base = calculate_rolling_rv(cleaned, window=288)
 df = generate_features(base).dropna()
 
-feat_cols = ['Realized_Volatility','Returns','RV_Lag_1','RV_Lag_3','RV_Lag_6',
-             'RV_Rolling_Mean_12','RV_Rolling_Std_12','Returns_Lag_1','Returns_Rolling_Std_12']
+feat_cols = [
+    'Realized_Volatility','Returns','RV_Lag_1','RV_Lag_3','RV_Lag_6',
+    'RV_Rolling_Mean_12','RV_Rolling_Std_12','Returns_Lag_1','Returns_Rolling_Std_12',
+    'VIX', 'VIX_Change', 'Hour_sin', 'Hour_cos'
+]
 
 split = int(len(df) * 0.8)
 train, test = df.iloc[:split], df.iloc[split:]

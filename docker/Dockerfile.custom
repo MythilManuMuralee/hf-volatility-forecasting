@@ -1,0 +1,6 @@
+FROM freqtradeorg/freqtrade:stable
+
+# xgboost is needed by user_data/train_vol_model.py and by the MythilVol
+# strategy to load user_data/models/vol_model.json (without it the strategy
+# falls back to an EWMA vol forecast).
+RUN pip install --user --no-cache-dir xgboost

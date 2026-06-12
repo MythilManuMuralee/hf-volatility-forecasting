@@ -52,6 +52,24 @@ def make_pair(start_price: float, base_vol: float, fname: str) -> None:
     df.to_feather(OUT / fname)
     print(f"{fname}: {len(df)} bars, {df['date'].iloc[0]} -> {df['date'].iloc[-1]}")
 
+    # Daily candles for the strategy's informative (regime) timeframe.
+    daily = (
+        df.set_index("date")
+        .resample("1D")
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        )
+        .dropna()
+        .reset_index()
+    )
+    dfname = fname.replace("-5m", "-1d")
+    daily.to_feather(OUT / dfname)
+    print(f"{dfname}: {len(daily)} bars")
+
 
 make_pair(95000.0, 0.0011, "BTC_USDT-5m.feather")
 make_pair(3400.0, 0.0014, "ETH_USDT-5m.feather")

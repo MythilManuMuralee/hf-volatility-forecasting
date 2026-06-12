@@ -7,9 +7,15 @@ The forecast comes from an XGBoost model trained offline by
 If the model file (or the xgboost package) is missing, the strategy falls back
 to an EWMA volatility forecast so the bot keeps running.
 
-The entry signal is a deliberately simple momentum filter and is a PLACEHOLDER
-meant to be iterated on - the value of this strategy is in the vol-targeting
-stake overlay, not the signal.
+Entries are deliberately infrequent: a daily-timeframe trend regime filter
+gates a 5m EMA-crossover trigger. With Kraken spot fees (~0.5% per round
+trip), trade frequency is the main thing that kills small accounts - the
+first version of this entry traded ~13x/day and lost exactly the fee per
+trade. Target here is roughly 1-3 trades per week per pair.
+
+This remains a starting point, not a proven edge. Expect losing weeks and
+months even if it works; validate in dry-run on real data before risking
+anything.
 """
 
 import logging
@@ -21,7 +27,8 @@ import numpy as np
 import talib.abstract as ta
 from pandas import DataFrame
 
-from freqtrade.strategy import IStrategy
+import freqtrade.vendor.qtpylib.indicators as qtpylib
+from freqtrade.strategy import IStrategy, merge_informative_pair
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +90,7 @@ class MythilVol(IStrategy):
     INTERFACE_VERSION = 3
 
     timeframe = "5m"
+    informative_timeframe = "1d"
     can_short = False
     process_only_new_candles = True
 
@@ -127,8 +135,21 @@ class MythilVol(IStrategy):
                 model_path,
             )
 
+    def informative_pairs(self):
+        return [(pair, self.informative_timeframe) for pair in self.dp.current_whitelist()]
+
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe = compute_vol_features(dataframe)
+
+        # Daily trend regime: only trade long while the last completed daily
+        # candle closed above its 20-day EMA.
+        informative = self.dp.get_pair_dataframe(
+            pair=metadata["pair"], timeframe=self.informative_timeframe
+        )
+        informative["ema_20"] = ta.EMA(informative, timeperiod=20)
+        dataframe = merge_informative_pair(
+            dataframe, informative, self.timeframe, self.informative_timeframe, ffill=True
+        )
 
         if self._model is not None:
             dmatrix = xgb.DMatrix(
@@ -155,11 +176,14 @@ class MythilVol(IStrategy):
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        # PLACEHOLDER ENTRY SIGNAL - simple momentum filter, iterate on this.
-        # Long when price is above the 50-bar EMA and RSI is in the 30-70 band
-        # (trending but not overbought/oversold).
+        # Entry = regime AND trigger:
+        #   regime:  daily close above daily EMA20 (uptrend on the slow clock)
+        #   trigger: 5m close CROSSES above 5m EMA50 - a crossover fires once
+        #            per cross instead of on every bar, which is what keeps
+        #            trade count (and fee bleed) low.
         dataframe.loc[
-            (dataframe["close"] > dataframe["ema_50"])
+            (dataframe["close_1d"] > dataframe["ema_20_1d"])
+            & qtpylib.crossed_above(dataframe["close"], dataframe["ema_50"])
             & (dataframe["rsi"] > 30)
             & (dataframe["rsi"] < 70)
             & (dataframe["forecast_vol"] > 0)
@@ -169,9 +193,10 @@ class MythilVol(IStrategy):
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        # PLACEHOLDER EXIT SIGNAL - momentum loss. Stops do most of the work.
+        # Exit only on loss of the DAILY trend regime; intratrade noise is
+        # handled by the stoploss and trailing stop instead.
         dataframe.loc[
-            (dataframe["close"] < dataframe["ema_50"]) & (dataframe["volume"] > 0),
+            (dataframe["close_1d"] < dataframe["ema_20_1d"]) & (dataframe["volume"] > 0),
             "exit_long",
         ] = 1
         return dataframe

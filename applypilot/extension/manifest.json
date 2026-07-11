@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "ApplyPilot — Send LinkedIn job",
+  "version": "1.0.0",
+  "description": "One click while viewing a LinkedIn job sends the title, company and description to your local ApplyPilot app.",
+  "permissions": ["activeTab"],
+  "host_permissions": ["http://localhost:4000/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/jobs/*", "https://www.linkedin.com/my-items/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

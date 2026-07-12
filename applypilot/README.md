@@ -42,6 +42,32 @@ npm run dev
 
 Production-style run: `npm run build && npm start` (server serves the built client).
 
+### Use it on your phone 📱
+
+The app is fully responsive and installable like a native app.
+
+**Same Wi-Fi (recommended, zero setup):**
+
+```bash
+npm run build && npm start
+```
+
+The server prints a `on your phone (same Wi-Fi): http://192.168.x.x:4000` line —
+open that URL in your phone's browser. Then use **Add to Home Screen**
+(Safari: Share → Add to Home Screen · Chrome: ⋮ → Add to Home screen) and
+ApplyPilot opens full-screen with its own icon, like an installed app.
+`npm run dev` works too — the phone URL is then port `5173`.
+
+**Away from home (optional):** tunnel your local server with
+
+```bash
+cloudflared tunnel --url http://localhost:4000   # or: ngrok http 4000
+```
+
+and open the printed URL on your phone from anywhere. Only do this while you
+need it — the tunnel URL is public (unguessable, but treat it like a secret,
+since the app has no login).
+
 ### Browser extension (LinkedIn one-click import)
 
 1. Open `chrome://extensions`, enable **Developer mode**.

@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import fs from 'fs'
+import os from 'os'
 import { fileURLToPath } from 'url'
 import cvsRouter from './routes/cvs.js'
 import applicationsRouter from './routes/applications.js'
@@ -57,8 +58,25 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || 'Something went wrong.' })
 })
 
-app.listen(PORT, () => {
+function lanAddresses() {
+  const out = []
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const iface of ifaces || []) {
+      if (iface.family === 'IPv4' && !iface.internal) out.push(iface.address)
+    }
+  }
+  return out
+}
+
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`ApplyPilot server on http://localhost:${PORT}`)
+  const built = fs.existsSync(dist)
+  for (const addr of lanAddresses()) {
+    console.log(`  on your phone (same Wi-Fi): http://${addr}:${built ? PORT : 5173}`)
+  }
+  if (!built) {
+    console.log('  (dev mode — phone uses the Vite port 5173; run `npm run build` once to serve everything on one port)')
+  }
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log('⚠  ANTHROPIC_API_KEY not set — AI steps will fail until you add it to server/.env')
   }

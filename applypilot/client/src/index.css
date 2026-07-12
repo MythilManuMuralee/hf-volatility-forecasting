@@ -170,6 +170,33 @@ textarea { resize: vertical; }
 .facts li { font-size: 13px; }
 .chip-wrap { display: flex; flex-wrap: wrap; }
 
-.margin-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.margin-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .repo { border-top: 1px solid var(--border); padding: 8px 0; }
 .repo a { color: var(--accent); text-decoration: none; }
+
+/* ---------- Mobile ---------- */
+@media (max-width: 640px) {
+  .app { padding: 0 12px 80px; }
+  h1 { font-size: 20px; }
+  .topbar { gap: 12px; flex-wrap: wrap; padding: 12px 0; }
+  .topbar .badge { order: 3; width: 100%; text-align: center; }
+  .page-head { flex-direction: column; }
+  .head-actions { width: 100%; }
+  .head-actions .button, .head-actions button { flex: 1; justify-content: center; }
+  .card { flex-direction: column; align-items: stretch; }
+  .card-actions { justify-content: space-between; flex-wrap: wrap; }
+  .card-actions .button { flex: 1; justify-content: center; }
+  .toolbar { position: sticky; top: 0; z-index: 10; }
+  .toolbar .step { flex: 1 1 40%; justify-content: center; }
+  .toolbar label.inline { width: 100%; }
+  .toolbar label.inline select { flex: 1; }
+  .two-col { grid-template-columns: 1fr; }
+  .upload-row { flex-direction: column; align-items: stretch; }
+  .upload-row input { width: 100%; }
+  .score-card { flex: 1 1 40%; min-width: 0; padding: 10px 12px; }
+  .score-value { font-size: 21px; }
+  .modal-backdrop { padding: 16px 8px; }
+  .modal { padding: 16px; }
+  button, .button, select, input, textarea { min-height: 40px; } /* comfortable tap targets */
+  .chip { min-height: 34px; }
+}

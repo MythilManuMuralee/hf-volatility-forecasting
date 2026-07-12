@@ -9,7 +9,7 @@ import cvsRouter from './routes/cvs.js'
 import applicationsRouter from './routes/applications.js'
 import tailorRouter from './routes/tailor.js'
 import githubRouter from './routes/github.js'
-import { getDb } from './db/database.js'
+import { get, run } from './db/database.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -23,7 +23,8 @@ app.use(express.json({ limit: '5mb' }))
 const APP_PASSWORD = process.env.APP_PASSWORD
 app.use('/api', (req, res, next) => {
   if (!APP_PASSWORD || req.path === '/health') return next()
-  const key = req.headers['x-applypilot-key'] || (req.headers.authorization || '').replace(/^Bearer /, '')
+  // ?key= is accepted too so <a download> links (DOCX export) work when locked
+  const key = req.headers['x-applypilot-key'] || req.query.key || (req.headers.authorization || '').replace(/^Bearer /, '')
   if (key === APP_PASSWORD) return next()
   res.status(401).json({ error: 'Locked — enter the app password.' })
 })
@@ -34,21 +35,23 @@ app.use('/api/tailor', tailorRouter)
 app.use('/api/github', githubRouter)
 
 // Endpoint the browser extension posts LinkedIn jobs to.
-app.post('/api/import', (req, res) => {
-  const { title, company, location, url, jd_text } = req.body
-  if (!title && !jd_text) return res.status(400).json({ error: 'Nothing to import.' })
-  const db = getDb()
-  if (url) {
-    const existing = db.prepare('SELECT id FROM applications WHERE url = ?').get(url)
-    if (existing) {
-      if (jd_text) db.prepare("UPDATE applications SET jd_text = ? WHERE id = ? AND jd_text = ''").run(jd_text, existing.id)
-      return res.json({ id: existing.id, existing: true })
+app.post('/api/import', async (req, res, next) => {
+  try {
+    const { title, company, location, url, jd_text } = req.body
+    if (!title && !jd_text) return res.status(400).json({ error: 'Nothing to import.' })
+    if (url) {
+      const existing = await get('SELECT id FROM applications WHERE url = ?', [url])
+      if (existing) {
+        if (jd_text) await run("UPDATE applications SET jd_text = ? WHERE id = ? AND jd_text = ''", [jd_text, existing.id])
+        return res.json({ id: existing.id, existing: true })
+      }
     }
-  }
-  const result = db.prepare(
-    'INSERT INTO applications (title, company, location, url, jd_text, source) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(title || 'Imported job', company || '', location || '', url || '', jd_text || '', 'linkedin-extension')
-  res.json({ id: result.lastInsertRowid })
+    const row = await get(
+      'INSERT INTO applications (title, company, location, url, jd_text, source) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
+      [title || 'Imported job', company || '', location || '', url || '', jd_text || '', 'linkedin-extension']
+    )
+    res.json({ id: row.id })
+  } catch (err) { next(err) }
 })
 
 app.get('/api/health', (req, res) => {

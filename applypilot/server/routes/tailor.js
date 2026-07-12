@@ -1,28 +1,21 @@
 import express from 'express'
-import fs from 'fs'
-import { getDb } from '../db/database.js'
-import { cvFilePath } from './cvs.js'
+import { get, run, SQL_NOW } from '../db/database.js'
+import { getCvFile } from './cvs.js'
 import { loadDocx, extractParagraphs, getSectionLayout, setMargins, replaceParagraphText, getParagraphNodes, saveDocx, estimatePageFill } from '../lib/docx.js'
 import { evaluateCv, rewriteCv, stressTestCv } from '../lib/claude.js'
 
 const router = express.Router()
 
-function loadRow(db, applicationId, cvId) {
-  return db.prepare('SELECT * FROM tailored_cvs WHERE application_id = ? AND cv_id = ?').get(applicationId, cvId)
-}
-
 async function getOrCreateTailored(applicationId, cvId) {
-  const db = getDb()
-  let row = loadRow(db, applicationId, cvId)
+  let row = await get('SELECT * FROM tailored_cvs WHERE application_id = ? AND cv_id = ?', [applicationId, cvId])
   if (!row) {
-    const cv = db.prepare('SELECT * FROM cvs WHERE id = ?').get(cvId)
-    if (!cv) { const e = new Error('CV not found.'); e.status = 404; throw e }
-    const { doc } = await loadDocx(fs.readFileSync(cvFilePath(cv)))
+    const cv = await getCvFile(cvId)
+    const { doc } = await loadDocx(cv.buffer)
     const paragraphs = extractParagraphs(doc)
     const layout = getSectionLayout(doc)
-    db.prepare('INSERT INTO tailored_cvs (application_id, cv_id, paragraphs_json, margins_json) VALUES (?, ?, ?, ?)')
-      .run(applicationId, cvId, JSON.stringify(paragraphs), JSON.stringify(layout))
-    row = loadRow(db, applicationId, cvId)
+    await run('INSERT INTO tailored_cvs (application_id, cv_id, paragraphs_json, margins_json) VALUES (?, ?, ?, ?)',
+      [applicationId, cvId, JSON.stringify(paragraphs), JSON.stringify(layout)])
+    row = await get('SELECT * FROM tailored_cvs WHERE application_id = ? AND cv_id = ?', [applicationId, cvId])
   }
   return hydrate(row)
 }
@@ -39,17 +32,16 @@ function hydrate(row) {
   }
 }
 
-function persist(row, patch) {
-  const db = getDb()
+async function persist(row, patch) {
   const sets = []
   const values = []
   for (const [col, val] of Object.entries(patch)) {
     sets.push(`${col} = ?`)
     values.push(typeof val === 'string' || val === null ? val : JSON.stringify(val))
   }
-  sets.push("updated_at = datetime('now')")
+  sets.push(`updated_at = ${SQL_NOW}`)
   values.push(row.id)
-  db.prepare(`UPDATE tailored_cvs SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+  await run(`UPDATE tailored_cvs SET ${sets.join(', ')} WHERE id = ?`, values)
 }
 
 function withPage(state) {
@@ -57,8 +49,8 @@ function withPage(state) {
   return { ...state, page }
 }
 
-function getJd(applicationId) {
-  const app = getDb().prepare('SELECT * FROM applications WHERE id = ?').get(applicationId)
+async function getJd(applicationId) {
+  const app = await get('SELECT * FROM applications WHERE id = ?', [applicationId])
   if (!app) { const e = new Error('Application not found.'); e.status = 404; throw e }
   if (!app.jd_text || app.jd_text.trim().length < 50) {
     const e = new Error('This application has no job description yet. Paste the JD first.')
@@ -80,8 +72,7 @@ router.get('/:applicationId/:cvId', async (req, res, next) => {
 // Reset working copy back to the original CV
 router.post('/:applicationId/:cvId/reset', async (req, res, next) => {
   try {
-    const db = getDb()
-    db.prepare('DELETE FROM tailored_cvs WHERE application_id = ? AND cv_id = ?').run(+req.params.applicationId, +req.params.cvId)
+    await run('DELETE FROM tailored_cvs WHERE application_id = ? AND cv_id = ?', [+req.params.applicationId, +req.params.cvId])
     res.json(withPage(await getOrCreateTailored(+req.params.applicationId, +req.params.cvId)))
   } catch (err) { next(err) }
 })
@@ -90,10 +81,10 @@ router.post('/:applicationId/:cvId/reset', async (req, res, next) => {
 router.post('/:applicationId/:cvId/evaluate', async (req, res, next) => {
   try {
     const state = await getOrCreateTailored(+req.params.applicationId, +req.params.cvId)
-    const jd = getJd(+req.params.applicationId)
+    const jd = await getJd(+req.params.applicationId)
     const evaluation = await evaluateCv(jd, cvText(state.paragraphs))
     const col = req.query.rescore === '1' ? 'rescore_json' : 'evaluation_json'
-    persist(state, { [col]: evaluation })
+    await persist(state, { [col]: evaluation })
     res.json({ evaluation })
   } catch (err) { next(err) }
 })
@@ -103,9 +94,9 @@ router.post('/:applicationId/:cvId/rewrite', async (req, res, next) => {
   try {
     const state = await getOrCreateTailored(+req.params.applicationId, +req.params.cvId)
     if (!state.evaluation) { const e = new Error('Run Step 1 (Evaluate) first.'); e.status = 400; throw e }
-    const jd = getJd(+req.params.applicationId)
+    const jd = await getJd(+req.params.applicationId)
     const rewrite = await rewriteCv(jd, state.paragraphs, state.evaluation)
-    persist(state, { rewrite_json: rewrite })
+    await persist(state, { rewrite_json: rewrite })
     res.json({ rewrite })
   } catch (err) { next(err) }
 })
@@ -114,15 +105,14 @@ router.post('/:applicationId/:cvId/rewrite', async (req, res, next) => {
 router.post('/:applicationId/:cvId/stress', async (req, res, next) => {
   try {
     const state = await getOrCreateTailored(+req.params.applicationId, +req.params.cvId)
-    const jd = getJd(+req.params.applicationId)
+    const jd = await getJd(+req.params.applicationId)
     const stress = await stressTestCv(jd, state.paragraphs)
-    persist(state, { stress_json: stress })
+    await persist(state, { stress_json: stress })
     res.json({ stress })
   } catch (err) { next(err) }
 })
 
-// Apply edits (from AI steps — after the user accepts them — or manual edits).
-// Body: { edits: [{index, new_text}], margins?: {marginTopIn,...} }
+// Apply edits (accepted AI edits or manual edits) and/or margin overrides.
 router.post('/:applicationId/:cvId/apply', async (req, res, next) => {
   try {
     const state = await getOrCreateTailored(+req.params.applicationId, +req.params.cvId)
@@ -133,7 +123,7 @@ router.post('/:applicationId/:cvId/apply', async (req, res, next) => {
       if (para) para.text = String(edit.new_text)
     }
     const layout = margins ? { ...state.layout, ...margins } : state.layout
-    persist(state, { paragraphs_json: state.paragraphs, margins_json: layout })
+    await persist(state, { paragraphs_json: state.paragraphs, margins_json: layout })
     res.json(withPage({ ...state, layout }))
   } catch (err) { next(err) }
 })
@@ -141,11 +131,10 @@ router.post('/:applicationId/:cvId/apply', async (req, res, next) => {
 // Export the tailored DOCX: original file + accumulated tweaks + margins.
 router.get('/:applicationId/:cvId/export', async (req, res, next) => {
   try {
-    const db = getDb()
     const state = await getOrCreateTailored(+req.params.applicationId, +req.params.cvId)
-    const cv = db.prepare('SELECT * FROM cvs WHERE id = ?').get(+req.params.cvId)
-    const app = db.prepare('SELECT * FROM applications WHERE id = ?').get(+req.params.applicationId)
-    const { zip, doc } = await loadDocx(fs.readFileSync(cvFilePath(cv)))
+    const cv = await getCvFile(+req.params.cvId)
+    const app = await get('SELECT * FROM applications WHERE id = ?', [+req.params.applicationId])
+    const { zip, doc } = await loadDocx(cv.buffer)
     const nodes = getParagraphNodes(doc)
     const original = extractParagraphs(doc)
     for (const para of state.paragraphs) {

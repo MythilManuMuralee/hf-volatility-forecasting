@@ -58,15 +58,33 @@ open that URL in your phone's browser. Then use **Add to Home Screen**
 ApplyPilot opens full-screen with its own icon, like an installed app.
 `npm run dev` works too — the phone URL is then port `5173`.
 
-**Away from home (optional):** tunnel your local server with
+**Away from home:** deploy to Render (below) for a permanent URL, or tunnel
+your local server temporarily with
+`cloudflared tunnel --url http://localhost:4000`. Either way, set
+`APP_PASSWORD` so only you can get in.
 
-```bash
-cloudflared tunnel --url http://localhost:4000   # or: ngrok http 4000
-```
+### Deploy to Render (free, runs 24/7 without your laptop)
 
-and open the printed URL on your phone from anywhere. Only do this while you
-need it — the tunnel URL is public (unguessable, but treat it like a secret,
-since the app has no login).
+The repo ships a `render.yaml` blueprint. Render's free tier has an
+**ephemeral disk**, so the app stores everything (including CV files) in a
+Postgres database when `DATABASE_URL` is set. Get a free permanent Postgres
+from [Neon](https://neon.tech) (sign in with GitHub → create project → copy
+the connection string).
+
+1. Push this repo to GitHub (private is fine — Render connects via your GitHub account).
+2. Render dashboard → **New +** → **Blueprint** → select the repo → Apply.
+3. Fill the env vars when prompted:
+   - `ANTHROPIC_API_KEY` — your Anthropic key
+   - `APP_PASSWORD` — pick a strong password (this is your login, required on a public URL)
+   - `DATABASE_URL` — the Neon connection string
+4. Open `https://applypilot-xxxx.onrender.com`, enter your password, and Add to
+   Home Screen on your phone.
+
+Free-tier notes: the service sleeps after ~15 min idle — the first request
+after a pause takes ~30–60 s to wake (fine for personal use). Without
+`DATABASE_URL` the app still runs but data resets when the service restarts,
+so do set it. If you use the LinkedIn extension with a deployed app, change
+`SERVER` at the top of `extension/content.js` to your Render URL.
 
 ### Browser extension (LinkedIn one-click import)
 

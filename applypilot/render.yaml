@@ -1,0 +1,20 @@
+# Render Blueprint — deploy ApplyPilot as a single web service.
+# In Render: New + → Blueprint → pick your applypilot repo → Apply.
+# Then fill in the three env vars it prompts for.
+services:
+  - type: web
+    name: applypilot
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false # paste your Anthropic key in the Render dashboard
+      - key: APP_PASSWORD
+        sync: false # pick a strong password — required, this makes the app yours only
+      - key: DATABASE_URL
+        sync: false # Postgres connection string (free Neon DB) so data survives restarts
+      - key: GITHUB_USERNAME
+        value: MythilManuMuralee

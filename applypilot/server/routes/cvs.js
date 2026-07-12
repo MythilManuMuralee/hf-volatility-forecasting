@@ -1,70 +1,65 @@
 import express from 'express'
 import multer from 'multer'
-import path from 'path'
-import fs from 'fs'
-import { getDb, getDataDir } from '../db/database.js'
+import { q, get, run } from '../db/database.js'
 import { loadDocx, extractParagraphs, getSectionLayout, estimatePageFill } from '../lib/docx.js'
 
 const router = express.Router()
-const UPLOAD_DIR = path.join(getDataDir(), 'uploads')
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true })
 
+// CV files live as blobs in the database (not on disk) so the app keeps its
+// data on cloud hosts with ephemeral filesystems (e.g. Render free tier).
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: UPLOAD_DIR,
-    filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^\w.\- ]/g, '_')}`),
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    cb(null, file.originalname.toLowerCase().endsWith('.docx'))
-  },
+  fileFilter: (req, file, cb) => cb(null, file.originalname.toLowerCase().endsWith('.docx')),
 })
 
-export function cvFilePath(cv) {
-  return path.join(UPLOAD_DIR, cv.filename)
+export async function getCvFile(cvId) {
+  const row = await get('SELECT * FROM cvs WHERE id = ?', [cvId])
+  if (!row) { const e = new Error('CV not found.'); e.status = 404; throw e }
+  return { ...row, buffer: Buffer.from(row.file) }
 }
 
-router.get('/', (req, res) => {
-  const db = getDb()
-  res.json(db.prepare('SELECT * FROM cvs ORDER BY created_at DESC').all())
-})
-
-router.post('/', upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Upload a .docx file.' })
+router.get('/', async (req, res, next) => {
   try {
-    const { doc } = await loadDocx(fs.readFileSync(req.file.path))
-    const paragraphs = extractParagraphs(doc)
-    const db = getDb()
-    const result = db.prepare('INSERT INTO cvs (name, filename, target_role) VALUES (?, ?, ?)').run(
-      req.body.name || req.file.originalname.replace(/\.docx$/i, ''),
-      req.file.filename,
-      req.body.target_role || ''
+    res.json(await q('SELECT id, name, filename, target_role, created_at FROM cvs ORDER BY created_at DESC'))
+  } catch (err) { next(err) }
+})
+
+router.post('/', upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Upload a .docx file.' })
+    let paragraphs
+    try {
+      const { doc } = await loadDocx(req.file.buffer)
+      paragraphs = extractParagraphs(doc)
+    } catch (err) {
+      return res.status(422).json({ error: `Could not parse that .docx: ${err.message}` })
+    }
+    const row = await get(
+      'INSERT INTO cvs (name, filename, target_role, file) VALUES (?, ?, ?, ?) RETURNING id',
+      [req.body.name || req.file.originalname.replace(/\.docx$/i, ''), req.file.originalname, req.body.target_role || '', req.file.buffer]
     )
-    res.json({ id: result.lastInsertRowid, paragraphCount: paragraphs.length })
-  } catch (err) {
-    fs.unlinkSync(req.file.path)
-    res.status(422).json({ error: `Could not parse that .docx: ${err.message}` })
-  }
+    res.json({ id: row.id, paragraphCount: paragraphs.length })
+  } catch (err) { next(err) }
 })
 
-router.get('/:id', async (req, res) => {
-  const db = getDb()
-  const cv = db.prepare('SELECT * FROM cvs WHERE id = ?').get(req.params.id)
-  if (!cv) return res.status(404).json({ error: 'CV not found.' })
-  const { doc } = await loadDocx(fs.readFileSync(cvFilePath(cv)))
-  const paragraphs = extractParagraphs(doc)
-  const layout = getSectionLayout(doc)
-  res.json({ ...cv, paragraphs, layout, page: estimatePageFill(paragraphs, layout) })
+router.get('/:id', async (req, res, next) => {
+  try {
+    const cv = await getCvFile(req.params.id)
+    const { doc } = await loadDocx(cv.buffer)
+    const paragraphs = extractParagraphs(doc)
+    const layout = getSectionLayout(doc)
+    const { file, buffer, ...meta } = cv
+    res.json({ ...meta, paragraphs, layout, page: estimatePageFill(paragraphs, layout) })
+  } catch (err) { next(err) }
 })
 
-router.delete('/:id', (req, res) => {
-  const db = getDb()
-  const cv = db.prepare('SELECT * FROM cvs WHERE id = ?').get(req.params.id)
-  if (cv) {
-    try { fs.unlinkSync(cvFilePath(cv)) } catch {}
-    db.prepare('DELETE FROM cvs WHERE id = ?').run(cv.id)
-  }
-  res.json({ success: true })
+router.delete('/:id', async (req, res, next) => {
+  try {
+    await run('DELETE FROM tailored_cvs WHERE cv_id = ?', [req.params.id])
+    await run('DELETE FROM cvs WHERE id = ?', [req.params.id])
+    res.json({ success: true })
+  } catch (err) { next(err) }
 })
 
 export default router

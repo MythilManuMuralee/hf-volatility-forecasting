@@ -45,7 +45,10 @@ export const api = {
   stress: (appId, cvId) => request(`/api/tailor/${appId}/${cvId}/stress`, { method: 'POST' }),
   applyEdits: (appId, cvId, edits, margins) =>
     request(`/api/tailor/${appId}/${cvId}/apply`, { method: 'POST', body: JSON.stringify({ edits, margins }) }),
-  exportUrl: (appId, cvId) => `/api/tailor/${appId}/${cvId}/export`,
+  exportUrl: (appId, cvId) => {
+    const key = getAppKey()
+    return `/api/tailor/${appId}/${cvId}/export${key ? `?key=${encodeURIComponent(key)}` : ''}`
+  },
 
   githubRepos: username => request(`/api/github/repos${username ? `?username=${encodeURIComponent(username)}` : ''}`),
 }

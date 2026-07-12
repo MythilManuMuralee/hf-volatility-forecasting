@@ -108,6 +108,43 @@ export async function rewriteCv(jdText, paragraphs, evaluation) {
   })
 }
 
+const MATCH_SCHEMA = {
+  type: 'object',
+  properties: {
+    ranking: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          cv_id: { type: 'integer' },
+          cv_name: { type: 'string' },
+          score: { type: 'integer' },
+          reason: { type: 'string' },
+        },
+        required: ['cv_id', 'cv_name', 'score', 'reason'],
+        additionalProperties: false,
+      },
+    },
+    recommendation: { type: 'string' },
+  },
+  required: ['ranking', 'recommendation'],
+  additionalProperties: false,
+}
+
+// Rank the user's CV library against one JD — powers auto-selecting the
+// best base CV before the tweak pipeline runs.
+export async function matchCvs(jdText, cvs) {
+  const blocks = cvs.map(cv =>
+    `=== CV id=${cv.id} name="${cv.name}"${cv.target_role ? ` target_role="${cv.target_role}"` : ''} ===\n${cv.text}`
+  ).join('\n\n')
+  return structuredCall({
+    system: `You are a Senior Recruiter. The candidate has several versions of their CV (same person, different emphasis). Rank ALL of them as starting points for this specific job. "score" is fit out of 100 before any tailoring. "reason" is one concrete sentence (which sections/keywords make it the best or worse fit). "ranking" must be ordered best-first and include every CV exactly once. "recommendation" is 1-2 sentences: which CV to use and the single biggest tweak that would improve it for this role.`,
+    user: `JOB DESCRIPTION:\n${jdText}\n\nCANDIDATE'S CVS:\n${blocks}`,
+    schema: MATCH_SCHEMA,
+    maxTokens: 4000,
+  })
+}
+
 const STRESS_SCHEMA = {
   type: 'object',
   properties: {

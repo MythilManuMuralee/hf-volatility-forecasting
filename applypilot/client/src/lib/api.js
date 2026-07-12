@@ -38,6 +38,7 @@ export const api = {
   updateApplication: (id, patch) => request(`/api/applications/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteApplication: id => request(`/api/applications/${id}`, { method: 'DELETE' }),
 
+  matchCvs: appId => request(`/api/tailor/${appId}/match`, { method: 'POST' }),
   getTailored: (appId, cvId) => request(`/api/tailor/${appId}/${cvId}`),
   resetTailored: (appId, cvId) => request(`/api/tailor/${appId}/${cvId}/reset`, { method: 'POST' }),
   evaluate: (appId, cvId, rescore) => request(`/api/tailor/${appId}/${cvId}/evaluate${rescore ? '?rescore=1' : ''}`, { method: 'POST' }),

@@ -1,8 +1,8 @@
 import express from 'express'
-import { get, run, SQL_NOW } from '../db/database.js'
+import { q, get, run, SQL_NOW } from '../db/database.js'
 import { getCvFile } from './cvs.js'
 import { loadDocx, extractParagraphs, getSectionLayout, setMargins, replaceParagraphText, getParagraphNodes, saveDocx, estimatePageFill } from '../lib/docx.js'
-import { evaluateCv, rewriteCv, stressTestCv } from '../lib/claude.js'
+import { evaluateCv, rewriteCv, stressTestCv, matchCvs } from '../lib/claude.js'
 
 const router = express.Router()
 
@@ -61,6 +61,29 @@ async function getJd(applicationId) {
 }
 
 const cvText = paragraphs => paragraphs.map(p => p.text).join('\n')
+
+// Rank all uploaded CVs against this job's JD and recommend the best base CV.
+router.post('/:applicationId/match', async (req, res, next) => {
+  try {
+    const jd = await getJd(+req.params.applicationId)
+    const cvs = await q('SELECT id, name, target_role FROM cvs ORDER BY created_at DESC')
+    if (!cvs.length) { const e = new Error('Upload at least one CV first.'); e.status = 400; throw e }
+    if (cvs.length === 1) {
+      return res.json({ match: {
+        ranking: [{ cv_id: cvs[0].id, cv_name: cvs[0].name, score: 100, reason: 'Only CV in your library.' }],
+        recommendation: `Only one CV uploaded (${cvs[0].name}) — using it. Upload more CVs and I'll pick the best fit per job.`,
+      } })
+    }
+    const withText = []
+    for (const cv of cvs) {
+      const file = await getCvFile(cv.id)
+      const { doc } = await loadDocx(file.buffer)
+      withText.push({ ...cv, text: extractParagraphs(doc).map(p => p.text).join('\n') })
+    }
+    const match = await matchCvs(jd, withText)
+    res.json({ match })
+  } catch (err) { next(err) }
+})
 
 // GET current tailored state (creates the working copy from the base CV on first touch)
 router.get('/:applicationId/:cvId', async (req, res, next) => {

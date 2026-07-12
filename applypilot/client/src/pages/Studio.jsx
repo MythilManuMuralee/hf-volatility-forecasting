@@ -18,6 +18,7 @@ export default function Studio() {
   const [showJd, setShowJd] = useState(false)
   const [jdDraft, setJdDraft] = useState('')
   const [repos, setRepos] = useState(null)
+  const [match, setMatch] = useState(null)
 
   useEffect(() => {
     api.getApplication(appId).then(a => { setApp(a); setJdDraft(a.jd_text || '') }).catch(e => setError(e.message))
@@ -96,6 +97,15 @@ export default function Studio() {
     } catch (err) { setError(err.message) } finally { setBusy('') }
   }
 
+  async function pickBestCv() {
+    setBusy('match'); setError('')
+    try {
+      const { match } = await api.matchCvs(appId)
+      setMatch(match)
+      if (match.ranking?.length) setCvId(match.ranking[0].cv_id)
+    } catch (err) { setError(err.message) } finally { setBusy('') }
+  }
+
   async function loadRepos() {
     setBusy('repos')
     try { setRepos(await api.githubRepos()) }
@@ -146,6 +156,9 @@ export default function Studio() {
             {cvs.map(cv => <option key={cv.id} value={cv.id}>{cv.name}{cv.target_role ? ` (${cv.target_role})` : ''}</option>)}
           </select>
         </label>
+        <button className="step" disabled={!!busy || !cvs.length} onClick={pickBestCv} title="Score every uploaded CV against this JD and select the best fit">
+          {busy === 'match' ? 'Matching…' : '★ Pick best CV'}
+        </button>
         <div className="spacer" />
         <button className="step" disabled={!!busy || !cvId} onClick={() => run('evaluate')}>
           {busy === 'evaluate' ? 'Scoring…' : '① Evaluate'}
@@ -163,6 +176,31 @@ export default function Studio() {
           if (window.confirm('Reset all tweaks back to the original CV?')) { setState(await api.resetTailored(appId, cvId)); setPending([]) }
         }}>Reset</button>
       </div>
+
+      {match && (
+        <div className="panel highlight">
+          <div className="panel-head">
+            <h2>★ Best CV for this job</h2>
+            <button className="ghost" onClick={() => setMatch(null)}>close</button>
+          </div>
+          <p className="small">{match.recommendation}</p>
+          <div className="match-list">
+            {match.ranking.map((r, i) => (
+              <button
+                key={r.cv_id}
+                className={`match-row ${r.cv_id === cvId ? 'selected' : ''}`}
+                onClick={() => setCvId(r.cv_id)}
+                title="Use this CV"
+              >
+                <span className="match-rank">{i === 0 ? '🏆' : `#${i + 1}`}</span>
+                <strong>{r.cv_name}</strong>
+                <span className="match-score">{r.score}/100</span>
+                <span className="muted small match-reason">{r.reason}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(evalData || rescore) && (
         <div className="score-row">

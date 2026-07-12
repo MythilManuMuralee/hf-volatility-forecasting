@@ -55,13 +55,21 @@ function makeButton() {
     }
     btn.textContent = 'Sending…'
     try {
-      const res = await fetch(`${SERVER}/api/import`, {
+      const send = () => fetch(`${SERVER}/api/import`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(localStorage.getItem('applypilot_key') ? { 'x-applypilot-key': localStorage.getItem('applypilot_key') } : {}),
+        },
         body: JSON.stringify(job),
       })
+      let res = await send()
+      if (res.status === 401) {
+        const pw = window.prompt('ApplyPilot password:')
+        if (pw) { localStorage.setItem('applypilot_key', pw); res = await send() }
+      }
       const data = await res.json()
-      btn.textContent = data.existing ? '✓ Already saved' : '✓ Saved to ApplyPilot'
+      btn.textContent = res.ok ? (data.existing ? '✓ Already saved' : '✓ Saved to ApplyPilot') : '✗ ' + (data.error || 'Failed')
     } catch {
       btn.textContent = '✗ Is ApplyPilot running?'
     }

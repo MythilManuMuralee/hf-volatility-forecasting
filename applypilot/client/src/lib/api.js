@@ -1,11 +1,19 @@
+const KEY_STORAGE = 'applypilot_key'
+export const getAppKey = () => localStorage.getItem(KEY_STORAGE) || ''
+export const setAppKey = key => localStorage.setItem(KEY_STORAGE, key)
+
 async function request(url, options = {}) {
-  const res = await fetch(url, {
-    headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
-    ...options,
-  })
+  const headers = options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }
+  const key = getAppKey()
+  if (key) headers['x-applypilot-key'] = key
+  const res = await fetch(url, { ...options, headers: { ...headers, ...options.headers } })
   let data = null
   try { data = await res.json() } catch {}
-  if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`)
+  if (!res.ok) {
+    const err = new Error(data?.error || `Request failed (${res.status})`)
+    err.status = res.status
+    throw err
+  }
   return data
 }
 

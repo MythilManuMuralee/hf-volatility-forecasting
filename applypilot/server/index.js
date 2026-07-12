@@ -18,6 +18,16 @@ const PORT = process.env.PORT || 4000
 app.use(cors()) // permissive: personal localhost app + browser extension POSTs
 app.use(express.json({ limit: '5mb' }))
 
+// Single-user lock. Set APP_PASSWORD in .env and every /api route (except
+// health) requires it — so a tunnel or cloud deployment stays yours only.
+const APP_PASSWORD = process.env.APP_PASSWORD
+app.use('/api', (req, res, next) => {
+  if (!APP_PASSWORD || req.path === '/health') return next()
+  const key = req.headers['x-applypilot-key'] || (req.headers.authorization || '').replace(/^Bearer /, '')
+  if (key === APP_PASSWORD) return next()
+  res.status(401).json({ error: 'Locked — enter the app password.' })
+})
+
 app.use('/api/cvs', cvsRouter)
 app.use('/api/applications', applicationsRouter)
 app.use('/api/tailor', tailorRouter)
@@ -42,7 +52,7 @@ app.post('/api/import', (req, res) => {
 })
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, hasApiKey: Boolean(process.env.ANTHROPIC_API_KEY) })
+  res.json({ ok: true, hasApiKey: Boolean(process.env.ANTHROPIC_API_KEY), locked: Boolean(APP_PASSWORD) })
 })
 
 // Serve the built client in production-style runs.

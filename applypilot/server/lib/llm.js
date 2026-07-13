@@ -1,40 +1,60 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenAI } from '@google/genai'
 
 // The 3-step pipeline from the "UK Jobs Insider — Claude 3-step prompt" guide,
-// adapted for programmatic use:
+// adapted for programmatic use, run on Gemini (free-tier friendly for a
+// personal, low-volume tool):
 //   Step 1 EVALUATE    — recruiter/hiring-manager scoring + missing keywords
 //   Step 2 REWRITE     — targeted tweaks to Summary / Experience / Skills / Projects
 //   Step 3 STRESS TEST — 6-second recruiter scan; rewrite only failing sections
 // Every rewrite is constrained to be a *tweak* (similar length, same jobs,
 // same chronology, truthful) so the document stays one page and stays honest.
 
-const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-8'
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
 let client
 function getClient() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    const err = new Error('ANTHROPIC_API_KEY is not set. Add it to applypilot/server/.env')
+  if (!process.env.GEMINI_API_KEY) {
+    const err = new Error('GEMINI_API_KEY is not set. Add it to applypilot/server/.env (get a free key at aistudio.google.com/apikey)')
     err.status = 400
     throw err
   }
-  if (!client) client = new Anthropic()
+  if (!client) client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   return client
 }
 
-async function structuredCall({ system, user, schema, maxTokens = 8000 }) {
-  const response = await getClient().messages.create({
+// Gemini's responseSchema is a restricted OpenAPI-3.0 subset — it rejects
+// unknown keywords like `additionalProperties`, so strip those before
+// sending a schema written for full JSON Schema.
+function toGeminiSchema(node) {
+  if (Array.isArray(node)) return node.map(toGeminiSchema)
+  if (node && typeof node === 'object') {
+    const out = {}
+    for (const [key, val] of Object.entries(node)) {
+      if (key === 'additionalProperties') continue
+      out[key] = toGeminiSchema(val)
+    }
+    return out
+  }
+  return node
+}
+
+async function structuredCall({ system, user, schema }) {
+  const response = await getClient().models.generateContent({
     model: MODEL,
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: 'user', content: user }],
-    output_config: { format: { type: 'json_schema', schema } },
+    contents: [{ role: 'user', parts: [{ text: user }] }],
+    config: {
+      systemInstruction: system,
+      responseMimeType: 'application/json',
+      responseSchema: toGeminiSchema(schema),
+    },
   })
-  if (response.stop_reason === 'refusal') {
-    const err = new Error('The model declined this request.')
+  const text = response.text
+  if (!text) {
+    const reason = response.candidates?.[0]?.finishReason
+    const err = new Error(reason ? `The model stopped without output (${reason}).` : 'The model returned no output.')
     err.status = 502
     throw err
   }
-  const text = response.content.find(b => b.type === 'text')?.text || '{}'
   return JSON.parse(text)
 }
 
@@ -55,7 +75,6 @@ const EVALUATION_SCHEMA = {
     summary: { type: 'string' },
   },
   required: ['ats_score', 'hiring_manager_score', 'missing_keywords', 'red_flags', 'strengths', 'weak_sections', 'interview_probability', 'summary'],
-  additionalProperties: false,
 }
 
 export async function evaluateCv(jdText, cvText) {
@@ -79,13 +98,11 @@ const EDITS_SCHEMA = {
           reason: { type: 'string' },
         },
         required: ['index', 'new_text', 'reason'],
-        additionalProperties: false,
       },
     },
     notes: { type: 'string' },
   },
   required: ['edits', 'notes'],
-  additionalProperties: false,
 }
 
 const TWEAK_RULES = `
@@ -104,7 +121,6 @@ export async function rewriteCv(jdText, paragraphs, evaluation) {
     system: `You are an elite resume writer tailoring an existing one-page CV to a specific job. You receive the CV as numbered paragraphs and must return surgical edits by paragraph index.\n${TWEAK_RULES}\n"notes" is a 1-3 sentence summary of what you changed and which missing keywords you worked in.`,
     user: `JOB DESCRIPTION:\n${jdText}\n\nEVALUATION OF CURRENT CV (fix these):\nMissing keywords: ${evaluation.missing_keywords.join(', ')}\nRed flags: ${evaluation.red_flags.join(' | ')}\nWeak sections: ${evaluation.weak_sections.join(' | ')}\n\nCV PARAGRAPHS (edit by index):\n${numberedCv(paragraphs)}`,
     schema: EDITS_SCHEMA,
-    maxTokens: 12000,
   })
 }
 
@@ -122,13 +138,11 @@ const MATCH_SCHEMA = {
           reason: { type: 'string' },
         },
         required: ['cv_id', 'cv_name', 'score', 'reason'],
-        additionalProperties: false,
       },
     },
     recommendation: { type: 'string' },
   },
   required: ['ranking', 'recommendation'],
-  additionalProperties: false,
 }
 
 // Rank the user's CV library against one JD — powers auto-selecting the
@@ -141,7 +155,6 @@ export async function matchCvs(jdText, cvs) {
     system: `You are a Senior Recruiter. The candidate has several versions of their CV (same person, different emphasis). Rank ALL of them as starting points for this specific job. "score" is fit out of 100 before any tailoring. "reason" is one concrete sentence (which sections/keywords make it the best or worse fit). "ranking" must be ordered best-first and include every CV exactly once. "recommendation" is 1-2 sentences: which CV to use and the single biggest tweak that would improve it for this role.`,
     user: `JOB DESCRIPTION:\n${jdText}\n\nCANDIDATE'S CVS:\n${blocks}`,
     schema: MATCH_SCHEMA,
-    maxTokens: 4000,
   })
 }
 
@@ -165,13 +178,11 @@ const STRESS_SCHEMA = {
           reason: { type: 'string' },
         },
         required: ['index', 'new_text', 'reason'],
-        additionalProperties: false,
       },
     },
     verdict: { type: 'string' },
   },
   required: ['attention_sections', 'skipped_sections', 'forgettable_bullets', 'generic_parts', 'curiosity_sections', 'shortlist_reasons', 'reject_reasons', 'edits', 'verdict'],
-  additionalProperties: false,
 }
 
 export async function stressTestCv(jdText, paragraphs) {
@@ -179,6 +190,5 @@ export async function stressTestCv(jdText, paragraphs) {
     system: `Act as two people at once: (1) an ATS system filtering thousands of resumes, and (2) an overworked Hiring Manager reading 200 resumes late at night with 6 seconds to decide whether to interview. Scan the resume top to bottom exactly as a recruiter would. Then rewrite ONLY the paragraphs that fail the "stop the scroll" test, as edits by paragraph index. The goal: make this resume impossible to ignore while remaining truthful.\n${TWEAK_RULES}\n"verdict" is one sentence: shortlist or reject, and why.`,
     user: `JOB DESCRIPTION:\n${jdText}\n\nCV PARAGRAPHS:\n${numberedCv(paragraphs)}`,
     schema: STRESS_SCHEMA,
-    maxTokens: 12000,
   })
 }

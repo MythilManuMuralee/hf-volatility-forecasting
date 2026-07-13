@@ -1,10 +1,14 @@
 # ✈️ ApplyPilot
 
 Personal job-application copilot. Paste a job link or JD (or send a job from
-LinkedIn with one click via the bundled browser extension), pick one of your
-existing CVs, and run the 3-step Claude pipeline to tailor it — **tweaks, not
-rewrites** — while keeping it truthful and **under one page**. Track every
-application from *Saved* to *Offer*.
+LinkedIn with one click via the bundled browser extension), auto-pick the
+best-fit CV from your library (or choose one), and run the 3-step Gemini
+pipeline to tailor it — **tweaks, not rewrites** — while keeping it truthful
+and **under one page**. Track every application from *Saved* to *Offer*.
+
+Runs on the **Gemini API** (`gemini-2.5-flash`), which has a free tier —
+plenty for personal, low-volume use. Get a key at
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
 The tailoring pipeline is the "UK Jobs Insider 3-step prompt" method:
 
@@ -33,7 +37,7 @@ cd applypilot
 npm install
 
 cp server/.env.example server/.env
-#   → put your ANTHROPIC_API_KEY in server/.env
+#   → put your GEMINI_API_KEY in server/.env (free key: aistudio.google.com/apikey)
 
 npm run dev
 # client:  http://localhost:5173
@@ -74,7 +78,7 @@ the connection string).
 1. Push this repo to GitHub (private is fine — Render connects via your GitHub account).
 2. Render dashboard → **New +** → **Blueprint** → select the repo → Apply.
 3. Fill the env vars when prompted:
-   - `ANTHROPIC_API_KEY` — your Anthropic key
+   - `GEMINI_API_KEY` — your free Gemini key
    - `APP_PASSWORD` — pick a strong password (this is your login, required on a public URL)
    - `DATABASE_URL` — the Neon connection string
 4. Open `https://applypilot-xxxx.onrender.com`, enter your password, and Add to
@@ -108,4 +112,4 @@ so do set it. If you use the LinkedIn extension with a deployed app, change
 
 ## Stack
 
-React + Vite · Express · better-sqlite3 · JSZip + xmldom (in-place DOCX editing) · Anthropic SDK (Claude Opus 4.8, structured outputs) · Chrome MV3 extension.
+React + Vite · Express · better-sqlite3 / Postgres · JSZip + xmldom (in-place DOCX editing) · Google Gen AI SDK (Gemini 2.5 Flash, structured outputs) · Chrome MV3 extension.

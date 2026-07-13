@@ -10,8 +10,8 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: ANTHROPIC_API_KEY
-        sync: false # paste your Anthropic key in the Render dashboard
+      - key: GEMINI_API_KEY
+        sync: false # paste your free Gemini key (aistudio.google.com/apikey) in the Render dashboard
       - key: APP_PASSWORD
         sync: false # pick a strong password — required, this makes the app yours only
       - key: DATABASE_URL

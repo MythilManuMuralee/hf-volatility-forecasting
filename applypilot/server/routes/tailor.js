@@ -2,7 +2,7 @@ import express from 'express'
 import { q, get, run, SQL_NOW } from '../db/database.js'
 import { getCvFile } from './cvs.js'
 import { loadDocx, extractParagraphs, getSectionLayout, setMargins, replaceParagraphText, getParagraphNodes, saveDocx, estimatePageFill } from '../lib/docx.js'
-import { evaluateCv, rewriteCv, stressTestCv, matchCvs } from '../lib/claude.js'
+import { evaluateCv, rewriteCv, stressTestCv, matchCvs } from '../lib/llm.js'
 
 const router = express.Router()
 

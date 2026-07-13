@@ -55,7 +55,7 @@ app.post('/api/import', async (req, res, next) => {
 })
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, hasApiKey: Boolean(process.env.ANTHROPIC_API_KEY), locked: Boolean(APP_PASSWORD) })
+  res.json({ ok: true, hasApiKey: Boolean(process.env.GEMINI_API_KEY), locked: Boolean(APP_PASSWORD) })
 })
 
 // Serve the built client in production-style runs.
@@ -90,7 +90,7 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!built) {
     console.log('  (dev mode — phone uses the Vite port 5173; run `npm run build` once to serve everything on one port)')
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log('⚠  ANTHROPIC_API_KEY not set — AI steps will fail until you add it to server/.env')
+  if (!process.env.GEMINI_API_KEY) {
+    console.log('⚠  GEMINI_API_KEY not set — AI steps will fail until you add it to server/.env')
   }
 })
